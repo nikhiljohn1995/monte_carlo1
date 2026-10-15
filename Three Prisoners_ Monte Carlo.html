@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Three Prisoners: Monte Carlo</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#faf9f7; --surface:#ffffff; --text:#1f1e1c; --muted:#6b675f; --border:#e3dfd7;
+  --good:#0f7b6c; --bad:#c2571a; --ref:#8a857b; --btn:#1f1e1c; --btn-text:#faf9f7;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1a18; --surface:#252421; --text:#efece6; --muted:#9d988d; --border:#3a3833;
+    --good:#4fc3b0; --bad:#f0955a; --ref:#8a857b; --btn:#efece6; --btn-text:#1b1a18;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1a18; --surface:#252421; --text:#efece6; --muted:#9d988d; --border:#3a3833;
+  --good:#4fc3b0; --bad:#f0955a; --ref:#8a857b; --btn:#efece6; --btn-text:#1b1a18;
+  color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+.wrap{max-width:820px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+select,button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text)}
+button.primary{background:var(--btn);color:var(--btn-text);border-color:var(--btn);cursor:pointer}
+button{cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+@media (max-width:560px){.cards{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.card .label{font-size:13px;color:var(--muted);margin-bottom:2px}
+.card .big{font-size:34px;font-weight:600;font-variant-numeric:tabular-nums}
+.card .meta{font-size:13px;color:var(--muted)}
+.good .big{color:var(--good)} .bad .big{color:var(--bad)}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px}
+.panel h2{font-size:15px;margin:0 0 8px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted);margin-bottom:6px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+svg{display:block;width:100%;height:auto}
+.barrow{margin:10px 0 14px}
+.barrow .t{font-size:13px;color:var(--muted);margin-bottom:5px}
+.bar{display:flex;height:30px;border-radius:6px;overflow:hidden;border:1px solid var(--border);font-size:13px;color:#fff}
+.bar div{display:flex;align-items:center;justify-content:center;white-space:nowrap;transition:width .15s}
+.seg-ab{background:var(--good)} .seg-bc{background:var(--bad)}
+.note{font-size:13.5px;color:var(--muted)}
+.note b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Three prisoners, Monte Carlo</h1>
+  <p class="sub">A is told nothing. He asks the guard to name one of the other two who will be freed. Same simulated trials, two ways of conditioning.</p>
+
+  <div class="controls">
+    <label for="trials">Trials</label>
+    <select id="trials">
+      <option value="1000">1,000</option>
+      <option value="10000">10,000</option>
+      <option value="100000" selected>100,000</option>
+      <option value="1000000">1,000,000</option>
+    </select>
+    <button class="primary" id="run">Run</button>
+    <button id="pause" disabled>Pause</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <div class="cards">
+    <div class="card good">
+      <div class="label">P(A freed | guard SAID "B")</div>
+      <div class="big" id="estGood">–</div>
+      <div class="meta">true value 0.667 · <span id="nGood">0</span> trials where guard said B</div>
+    </div>
+    <div class="card bad">
+      <div class="label">P(A freed | B is released)</div>
+      <div class="big" id="estBad">–</div>
+      <div class="meta">true value 0.500 · <span id="nBad">0</span> trials where B was released</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Running estimate vs trials (log scale)</h2>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--good)"></span>conditioned on guard's statement</span>
+      <span><span class="dot" style="background:var(--bad)"></span>conditioned on "B is released"</span>
+    </div>
+    <svg id="chart" viewBox="0 0 640 300" role="img" aria-label="Running probability estimates"></svg>
+  </div>
+
+  <div class="panel">
+    <h2>Which pair was actually freed?</h2>
+    <div class="barrow">
+      <div class="t">Trials where the guard said "B"</div>
+      <div class="bar" id="barSaid"></div>
+    </div>
+    <div class="barrow">
+      <div class="t">Trials where B was released (guard's statement ignored)</div>
+      <div class="bar" id="barRel"></div>
+    </div>
+    <p class="note">A+B is the only world where A is free. When the guard says "B", A+B shows up <b>twice as often</b> as B+C, because in A+B he is forced to say B, while in B+C he says B only half the time. Ignore the statement and just ask whether B is released, and the two worlds are equally likely, which gives the 1/2 from the original (flawed) argument.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  var $ = function(id){return document.getElementById(id)};
+  var st, raf = null;
+
+  function reset(){
+    if(raf){cancelAnimationFrame(raf);raf=null}
+    st = {n:0, said:0, saidAB:0, saidBC:0, rel:0, relAB:0, relBC:0, pts:[], total:0};
+    $('run').disabled=false; $('pause').disabled=true; $('trials').disabled=false;
+    render();
+  }
+
+  function runBatch(k){
+    for(var i=0;i<k;i++){
+      // 0 = A+B freed, 1 = A+C freed, 2 = B+C freed
+      var r = (Math.random()*3)|0;
+      var said = r===0 ? 'B' : r===1 ? 'C' : (Math.random()<0.5 ? 'B' : 'C');
+      if(said==='B'){
+        st.said++;
+        if(r===0) st.saidAB++; else st.saidBC++;
+      }
+      if(r===0 || r===2){
+        st.rel++;
+        if(r===0) st.relAB++; else st.relBC++;
+      }
+    }
+    st.n += k;
+  }
+
+  function step(){
+    var next = Math.min(st.total, Math.max(st.n+1, Math.ceil(st.n*1.05)));
+    runBatch(next - st.n);
+    if(st.n>=10 && st.said>0 && st.rel>0){
+      st.pts.push([st.n, st.saidAB/st.said, st.relAB/st.rel]);
+    }
+    render();
+    if(st.n<st.total){ raf = requestAnimationFrame(step); }
+    else { raf=null; $('run').disabled=false; $('pause').disabled=true; $('trials').disabled=false; }
+  }
+
+  function bar(el, ab, bc){
+    var t = ab+bc;
+    if(!t){ el.innerHTML=''; return; }
+    var pa = ab/t*100, pb = bc/t*100;
+    el.innerHTML = '<div class="seg-ab" style="width:'+pa+'%">A+B '+pa.toFixed(1)+'%</div>'+
+                   '<div class="seg-bc" style="width:'+pb+'%">B+C '+pb.toFixed(1)+'%</div>';
+  }
+
+  function render(){
+    $('estGood').textContent = st.said ? (st.saidAB/st.said).toFixed(3) : '–';
+    $('estBad').textContent  = st.rel  ? (st.relAB/st.rel).toFixed(3)   : '–';
+    $('nGood').textContent = st.said.toLocaleString();
+    $('nBad').textContent  = st.rel.toLocaleString();
+    bar($('barSaid'), st.saidAB, st.saidBC);
+    bar($('barRel'),  st.relAB,  st.relBC);
+    drawChart();
+  }
+
+  function drawChart(){
+    var W=640,H=300,L=44,R=14,T=12,B=30;
+    var total = st.total || +$('trials').value;
+    var xmin = Math.log10(10), xmax = Math.log10(Math.max(total,100));
+    var X = function(n){return L + (Math.log10(n)-xmin)/(xmax-xmin)*(W-L-R)};
+    var Y = function(p){return T + (1-p)*(H-T-B)};
+    var s = '';
+    [0,0.25,0.5,0.75,1].forEach(function(p){
+      s += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(p)+'" y2="'+Y(p)+'" stroke="var(--border)"/>';
+      s += '<text x="'+(L-8)+'" y="'+(Y(p)+4)+'" text-anchor="end" font-size="11" fill="var(--muted)">'+p+'</text>';
+    });
+    for(var e=1;e<=xmax;e++){
+      var xv = X(Math.pow(10,e));
+      s += '<line x1="'+xv+'" x2="'+xv+'" y1="'+T+'" y2="'+(H-B)+'" stroke="var(--border)" stroke-dasharray="2 4"/>';
+      s += '<text x="'+xv+'" y="'+(H-B+16)+'" text-anchor="middle" font-size="11" fill="var(--muted)">10^'+e+'</text>';
+    }
+    // reference lines
+    s += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(2/3)+'" y2="'+Y(2/3)+'" stroke="var(--good)" stroke-dasharray="6 4" opacity=".6"/>';
+    s += '<text x="'+(W-R-2)+'" y="'+(Y(2/3)-5)+'" text-anchor="end" font-size="11" fill="var(--good)">2/3</text>';
+    s += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(0.5)+'" y2="'+Y(0.5)+'" stroke="var(--bad)" stroke-dasharray="6 4" opacity=".6"/>';
+    s += '<text x="'+(W-R-2)+'" y="'+(Y(0.5)+14)+'" text-anchor="end" font-size="11" fill="var(--bad)">1/2</text>';
+    // lines
+    function path(idx,color){
+      if(st.pts.length<2) return '';
+      var d='';
+      st.pts.forEach(function(p,i){ d += (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[idx]).toFixed(1); });
+      return '<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>';
+    }
+    s += path(1,'var(--good)') + path(2,'var(--bad)');
+    $('chart').innerHTML = s;
+  }
+
+  $('run').addEventListener('click', function(){
+    if(st.n>=st.total && st.total>0){ reset(); }
+    if(st.total===0){ st.total = +$('trials').value; }
+    $('run').disabled=true; $('pause').disabled=false; $('trials').disabled=true;
+    raf = requestAnimationFrame(step);
+  });
+  $('pause').addEventListener('click', function(){
+    if(raf){cancelAnimationFrame(raf);raf=null}
+    $('run').disabled=false; $('pause').disabled=true;
+  });
+  $('reset').addEventListener('click', reset);
+  $('trials').addEventListener('change', function(){ if(st.n===0) drawChart(); });
+
+  reset();
+})();
+</script>
+</body>
+</html>
