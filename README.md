@@ -1,2 +1,3 @@
 # monte_carlo1
 Monte Carlo simulation of a famous probability puzzle (the three prisoners problem). This is artefact 1 of my Learning Systems from Scratch series, where I start with basic probability questions and build simulations toward understanding complex economic, biological and financial systems. 
+The problem - Three prisoners, A, B and C, are told that two of them will be freed, chosen at random. A asks the guard: “Name one of the other two who will be freed.” The guard names B. Has A’s chance of release changed from 2/3? Many people argue it drops to 1/2, since only A and C seem to remain. The simulation shows it stays at 2/3, because the guard’s answer carries no information about A, only about C.
